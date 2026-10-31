@@ -1,0 +1,67 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// DB CHECKs (migration add_non_negative_quantity_checks):
+// products.priceInKopecks >= 0
+// products.stockQuantity >= 0
+// stock_movements.quantity > 0
+model Product {
+  id             String    @id @db.Uuid
+  name           String
+  /// Опциональное описание карточки; пустое в API → null.
+  description    String?
+  /// Уникальный URL-идентификатор; формат a-z0-9 и дефисы.
+  slug           String    @unique
+  /// Цена в копейках; null — не назначена. CHECK >= 0 в БД.
+  priceInKopecks Int?
+  /// null — учёт отключён; иначе остаток. CHECK >= 0 в БД.
+  stockQuantity  Int?
+  /// null — в активном каталоге; иначе момент архивации.
+  archivedAt     DateTime? @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  /// Любое изменение строки: карточка, остаток, учёт, архивация.
+  updatedAt      DateTime  @updatedAt @db.Timestamptz(3)
+  stockMovements StockMovement[]
+
+  @@index([archivedAt])
+  @@map("products")
+}
+
+/// Дерево категорий каталога. См. docs/adr/0006-categories-slice-a.md
+model Category {
+  id        String     @id @db.Uuid
+  name      String
+  slug      String     @unique
+  parentId  String?    @db.Uuid
+  parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  children  Category[] @relation("CategoryTree")
+  createdAt DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime   @updatedAt @db.Timestamptz(3)
+
+  @@index([parentId])
+  @@map("categories")
+}
+
+enum StockMovementDirection {
+  INCREASE
+  DECREASE
+}
+
+model StockMovement {
+  idempotencyKey String                 @id @db.Uuid
+  productId      String                 @db.Uuid
+  direction      StockMovementDirection
+  /// Количество операции. CHECK > 0 в БД.
+  quantity       Int
+  createdAt      DateTime               @default(now()) @db.Timestamptz(3)
+  product        Product                @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([productId])
+  @@map("stock_movements")
+}
